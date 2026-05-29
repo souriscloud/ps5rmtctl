@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# Docker volume (may contain registration credentials)
+data/
+
+# OS
+.DS_Store

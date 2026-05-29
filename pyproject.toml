@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ps5rmtctl"
+version = "0.1.0"
+description = "Blind (no-video) PlayStation 5 remote control over the network, built on PS Remote Play."
+requires-python = ">=3.8"
+dependencies = [
+    # Core PS Remote Play protocol implementation. GUI/video extras are intentionally omitted.
+    "pyremoteplay==0.7.6",
+    # pyremoteplay 0.7.6 does `from pyee import ExecutorEventEmitter`, which only
+    # exists in pyee < 9. Pin it so the import does not break.
+    "pyee<9",
+]
+
+[project.scripts]
+ps5rmtctl = "ps5rmtctl.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["ps5rmtctl*"]
