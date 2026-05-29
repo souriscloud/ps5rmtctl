@@ -44,6 +44,12 @@ INDEX_HTML = r"""<!DOCTYPE html>
   .center { display:flex; justify-content:center; gap:12px; }
   .center .btn { width:auto; padding:0 18px; height:44px; border-radius:22px; font-size:14px; background:var(--btn2); }
   .ps { background:var(--accent)!important; }
+  #feedback { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%) scale(0.8);
+    font-size:46px; font-weight:800; color:#fff; opacity:0; pointer-events:none;
+    text-shadow:0 2px 16px #000; transition:opacity .12s, transform .12s; z-index:99; }
+  #feedback.show { opacity:0.92; transform:translate(-50%,-50%) scale(1); }
+  button.sys:disabled { opacity:0.45; }
+  button.sys.busy { background:var(--accent); }
 </style>
 </head>
 <body>
@@ -87,6 +93,8 @@ INDEX_HTML = r"""<!DOCTYPE html>
   </div>
 </div>
 
+<div id="feedback"></div>
+
 <script>
 (function () {
   // --- token handling ---
@@ -98,7 +106,14 @@ INDEX_HTML = r"""<!DOCTYPE html>
   const dot = document.getElementById('dot');
   const stat = document.getElementById('stat');
   const linkBtn = document.getElementById('link');
-  let linked = false;
+  const fb = document.getElementById('feedback');
+  let linked = false, busy = false, fbTimer;
+  function flash(name) {
+    fb.textContent = name;
+    fb.classList.add('show');
+    clearTimeout(fbTimer);
+    fbTimer = setTimeout(() => fb.classList.remove('show'), 220);
+  }
 
   // --- websocket with auto-reconnect ---
   let ws = null, reconnectTimer = null;
@@ -124,10 +139,12 @@ INDEX_HTML = r"""<!DOCTYPE html>
       const s = await r.json();
       linked = !!s.session_ready;
       dot.className = s.on ? 'on' : 'off';
-      linkBtn.textContent = linked ? 'Unlink' : 'Link';
-      linkBtn.classList.toggle('ps', linked);
-      const base = s.on ? (s.app ? s.app : (s.status || 'on')) : 'rest mode';
-      stat.textContent = base + (s.on ? (linked ? ' · linked' : ' · idle') : '');
+      if (!busy) {                          // don't clobber the in-flight state
+        linkBtn.textContent = linked ? 'Unlink' : 'Link';
+        linkBtn.classList.toggle('ps', linked);
+        const base = s.on ? (s.app ? s.app : (s.status || 'on')) : 'rest mode';
+        stat.textContent = base + (s.on ? (linked ? ' · linked' : ' · idle') : '');
+      }
     } catch (_) {}
   }
   setInterval(refreshStatus, 5000);
@@ -137,7 +154,7 @@ INDEX_HTML = r"""<!DOCTYPE html>
     const btn = el.dataset.btn;
     let down = false;
     const press = (ev) => { ev.preventDefault(); if (down) return; down = true; el.classList.add('active');
-      if (navigator.vibrate) navigator.vibrate(8); send({ action: 'press', button: btn }); };
+      if (navigator.vibrate) navigator.vibrate(8); flash(btn); send({ action: 'press', button: btn }); };
     const release = () => { if (!down) return; down = false; el.classList.remove('active'); send({ action: 'release', button: btn }); };
     el.addEventListener('pointerdown', press);
     el.addEventListener('pointerup', release);
@@ -145,11 +162,70 @@ INDEX_HTML = r"""<!DOCTYPE html>
     el.addEventListener('pointercancel', release);
   }
   document.querySelectorAll('.btn[data-btn]').forEach(bind);
-  document.getElementById('wake').addEventListener('click', () => { send({ action: 'wake' }); stat.textContent = 'waking…'; setTimeout(refreshStatus, 3000); });
-  linkBtn.addEventListener('click', () => {
-    if (linked) { send({ action: 'disconnect' }); stat.textContent = 'unlinking…'; setTimeout(refreshStatus, 500); }
-    else { send({ action: 'connect' }); stat.textContent = 'linking…'; setTimeout(refreshStatus, 3500); }
+
+  // --- physical keyboard control (press/release, so holds repeat) ---
+  const KEYMAP = {
+    ArrowUp: 'UP', ArrowDown: 'DOWN', ArrowLeft: 'LEFT', ArrowRight: 'RIGHT',
+    Enter: 'CROSS', Backspace: 'CIRCLE',
+  };
+  const held = new Set();
+  const btnEl = (name) => document.querySelector('.btn[data-btn="' + name + '"]');
+  window.addEventListener('keydown', (e) => {
+    const b = KEYMAP[e.key];
+    if (!b) return;
+    e.preventDefault();                 // stop Backspace=back, arrows=scroll
+    if (e.repeat || held.has(e.key)) return;
+    held.add(e.key);
+    const el = btnEl(b); if (el) el.classList.add('active');
+    flash(b);
+    send({ action: 'press', button: b });
   });
+  window.addEventListener('keyup', (e) => {
+    const b = KEYMAP[e.key];
+    if (!b) return;
+    e.preventDefault();
+    held.delete(e.key);
+    const el = btnEl(b); if (el) el.classList.remove('active');
+    send({ action: 'release', button: b });
+  });
+  // POST a control endpoint and return the parsed JSON (throws on HTTP/app error).
+  async function api(path) {
+    const r = await fetch(path, { method: 'POST', headers: { 'Authorization': 'Bearer ' + token } });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || j.error) throw new Error(j.error || ('HTTP ' + r.status));
+    return j;
+  }
+
+  const wakeBtn = document.getElementById('wake');
+  let wakeBusy = false;
+  wakeBtn.addEventListener('click', async () => {
+    if (wakeBusy) return;
+    wakeBusy = true; wakeBtn.disabled = true; stat.textContent = 'waking…';
+    try { await api('/api/wake'); }
+    catch (e) { stat.textContent = '⚠ ' + e.message; }
+    finally { wakeBusy = false; wakeBtn.disabled = false; refreshStatus(); }
+  });
+
+  // Link/Unlink: awaits the real result, shows progress, can't be spam-clicked.
+  async function setLink(connect) {
+    if (busy) return;
+    busy = true;
+    linkBtn.disabled = true;
+    linkBtn.classList.add('busy');
+    linkBtn.textContent = connect ? 'Linking…' : 'Unlinking…';
+    stat.textContent = connect ? 'linking…' : 'unlinking…';
+    try {
+      await api(connect ? '/api/connect' : '/api/disconnect');
+    } catch (e) {
+      stat.textContent = '⚠ ' + e.message;
+    } finally {
+      busy = false;
+      linkBtn.disabled = false;
+      linkBtn.classList.remove('busy');
+      refreshStatus();
+    }
+  }
+  linkBtn.addEventListener('click', () => setLink(!linked));
 
   connect();
 })();
