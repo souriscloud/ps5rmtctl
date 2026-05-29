@@ -171,9 +171,10 @@ Python 3.9–3.11.
 A `Dockerfile` (Alpine, ~176 MB) and `docker-compose.yml` are included.
 
 ```bash
+# your host/user/token go in .env (gitignored)
+cp .env.example .env && $EDITOR .env
 # seed the registration the container will use (copy the profile you made)
 mkdir -p data/.pyremoteplay && cp ~/.pyremoteplay/.profile.json data/.pyremoteplay/
-# set PS5RMTCTL_HOST / PS5RMTCTL_USER / PS5RMTCTL_TOKEN in docker-compose.yml, then:
 docker compose up -d --build
 ```
 

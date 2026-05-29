@@ -10,5 +10,9 @@ venv/
 # Docker volume (may contain registration credentials)
 data/
 
+# Local secrets / config (keep the .env.example template tracked)
+.env
+!.env.example
+
 # OS
 .DS_Store

@@ -4,12 +4,10 @@ services:
     image: ps5rmtctl:latest
     container_name: ps5rmtctl
     restart: unless-stopped
-    environment:
-      # Your console + PSN user (or omit and rely on the mounted config.json).
-      PS5RMTCTL_HOST: "192.168.0.155"
-      PS5RMTCTL_USER: "SourisCLOUD"
-      # Pick a strong token; clients pass it as ?token=... or a Bearer header.
-      PS5RMTCTL_TOKEN: "change-me-to-a-long-random-string"
+    # Your console IP, PSN user, and API token live in .env (gitignored).
+    # Copy .env.example -> .env and fill it in.
+    env_file:
+      - .env
     # Persist registration keys + config. Seed it by copying the profile you
     # already made:  ./data/.pyremoteplay/.profile.json
     volumes:
@@ -17,8 +15,8 @@ services:
     ports:
       # host:container — reachable from the host (and its Tailscale IP).
       - "8645:8645"
-    # Optional: auto-release the session sooner/never (default 120s).
-    command: ["serve", "--bind", "0.0.0.0", "--port", "8645", "--idle-timeout", "120"]
+    # Auto-release the session after N seconds idle (override via .env).
+    command: ["serve", "--bind", "0.0.0.0", "--port", "8645", "--idle-timeout", "${PS5RMTCTL_IDLE_TIMEOUT:-120}"]
 
     # ---------------------------------------------------------------------
     # NETWORKING — the important bit for Remote Play (UDP to the PS5):
