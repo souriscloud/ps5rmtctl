@@ -166,7 +166,7 @@ INDEX_HTML = r"""<!DOCTYPE html>
   // --- physical keyboard control (press/release, so holds repeat) ---
   const KEYMAP = {
     ArrowUp: 'UP', ArrowDown: 'DOWN', ArrowLeft: 'LEFT', ArrowRight: 'RIGHT',
-    Enter: 'CROSS', Backspace: 'CIRCLE',
+    Enter: 'CROSS', Backspace: 'CIRCLE', Escape: 'PS',
   };
   const held = new Set();
   const btnEl = (name) => document.querySelector('.btn[data-btn="' + name + '"]');
