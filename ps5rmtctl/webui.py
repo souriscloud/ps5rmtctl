@@ -13,83 +13,182 @@ INDEX_HTML = r"""<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="theme-color" content="#0a0a0f">
+<meta name="theme-color" content="#07070c">
 <title>PS5 Remote</title>
 <style>
-  :root { --bg:#0a0a0f; --panel:#16161f; --btn:#23232f; --btn2:#2d2d3d; --accent:#2a6cf6; --txt:#e8e8f0; }
-  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; -webkit-user-select:none; user-select:none; touch-action:manipulation; }
-  html,body { margin:0; height:100%; background:var(--bg); color:var(--txt);
-    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; overscroll-behavior:none; }
-  body { display:flex; flex-direction:column; padding:env(safe-area-inset-top) 12px env(safe-area-inset-bottom); gap:10px; }
-  header { display:flex; align-items:center; gap:10px; padding:10px 4px; }
-  #dot { width:10px; height:10px; border-radius:50%; background:#888; flex:0 0 auto; }
-  #dot.on { background:#33c264; } #dot.off { background:#e0556b; }
-  #stat { font-size:13px; color:#aab; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  button.sys { background:var(--panel); color:var(--txt); border:1px solid #2a2a38; border-radius:10px; padding:8px 12px; font-size:13px; }
-  .pad { display:flex; flex-direction:column; gap:14px; flex:1; justify-content:center; }
-  .row { display:flex; justify-content:space-between; align-items:center; gap:14px; }
-  .shoulders { justify-content:space-between; }
-  .shoulders .btn { flex:1; height:48px; border-radius:12px; font-size:15px; }
-  .main { display:flex; justify-content:space-between; align-items:center; gap:10px; }
-  .cluster { display:grid; grid-template-columns:repeat(3,64px); grid-template-rows:repeat(3,64px); gap:8px; }
-  .btn { background:var(--btn); color:var(--txt); border:none; border-radius:16px; font-size:20px;
-    display:flex; align-items:center; justify-content:center; font-weight:600; }
-  .btn:active, .btn.active { background:var(--accent); transform:scale(0.94); }
-  .btn.face { border-radius:50%; font-size:26px; }
-  .dpad .u { grid-area:1/2; } .dpad .l { grid-area:2/1; } .dpad .r { grid-area:2/3; } .dpad .d { grid-area:3/2; }
-  .dpad .c { grid-area:2/2; background:transparent; }
-  .face-cluster .t { grid-area:1/2; } .face-cluster .s { grid-area:2/1; } .face-cluster .o { grid-area:2/3; } .face-cluster .x { grid-area:3/2; }
-  .face-cluster .c { grid-area:2/2; background:transparent; }
-  .syscol-tri { color:#43d39b; } .syscol-cir { color:#f0606e; } .syscol-sqr { color:#e573c7; } .syscol-cro { color:#7aa6ff; }
-  .center { display:flex; justify-content:center; gap:12px; }
-  .center .btn { width:auto; padding:0 18px; height:44px; border-radius:22px; font-size:14px; background:var(--btn2); }
-  .ps { background:var(--accent)!important; }
-  #feedback { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%) scale(0.8);
-    font-size:46px; font-weight:800; color:#fff; opacity:0; pointer-events:none;
-    text-shadow:0 2px 16px #000; transition:opacity .12s, transform .12s; z-index:99; }
-  #feedback.show { opacity:0.92; transform:translate(-50%,-50%) scale(1); }
-  button.sys:disabled { opacity:0.45; }
-  button.sys.busy { background:var(--accent); }
+  :root {
+    --bg0:#07070c; --bg1:#0d0d16;
+    --glass:rgba(255,255,255,0.045); --glass-brd:rgba(255,255,255,0.09);
+    --txt:#eef0f7; --muted:#8d92a8;
+    --accent:#3b82f6; --accent2:#7c5cff;
+    --ok:#34d399; --bad:#fb7185;
+    --tri:#46e0a8; --cir:#ff6b7d; --sqr:#ef72d2; --cro:#7aa6ff;
+    --r:18px;
+  }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent;
+      -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; }
+  html,body { margin:0; min-height:100%; }
+  body {
+    min-height:100dvh; color:var(--txt); overscroll-behavior:none;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Inter,sans-serif;
+    background:
+      radial-gradient(70% 55% at 18% 0%, rgba(124,92,255,0.16), transparent 60%),
+      radial-gradient(65% 50% at 100% 8%, rgba(59,130,246,0.18), transparent 55%),
+      radial-gradient(90% 60% at 50% 100%, rgba(59,130,246,0.07), transparent 60%),
+      linear-gradient(180deg, var(--bg1), var(--bg0));
+    background-attachment:fixed;
+    display:flex; flex-direction:column; align-items:center;
+    padding:calc(env(safe-area-inset-top) + 10px) 14px calc(env(safe-area-inset-bottom) + 14px);
+  }
+  .wrap { width:100%; max-width:480px; flex:1; display:flex; flex-direction:column; gap:14px;
+    animation:rise .5s cubic-bezier(.2,.8,.2,1) both; }
+  @keyframes rise { from { opacity:0; transform:translateY(14px) scale(.98); } }
+
+  header { display:flex; align-items:center; gap:10px; }
+  .brand { font-weight:800; letter-spacing:.04em; font-size:15px; white-space:nowrap;
+    background:linear-gradient(90deg,#fff,#c7d2fe); -webkit-background-clip:text;
+    background-clip:text; color:transparent; }
+  .brand b { font-weight:800; }
+  .pill { margin-left:auto; display:flex; align-items:center; gap:8px; min-width:0;
+    padding:7px 12px; border-radius:999px; background:var(--glass);
+    border:1px solid var(--glass-brd); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px); }
+  #dot { width:9px; height:9px; border-radius:50%; background:#6b7080; flex:0 0 auto;
+    box-shadow:0 0 0 0 rgba(0,0,0,0); transition:background .25s, box-shadow .25s; }
+  #dot.on  { background:var(--ok);  box-shadow:0 0 10px 1px rgba(52,211,153,.7); }
+  #dot.off { background:var(--bad); box-shadow:0 0 10px 1px rgba(251,113,133,.6); }
+  #stat { font-size:12.5px; color:var(--muted); overflow:hidden; text-overflow:ellipsis;
+    white-space:nowrap; max-width:46vw; }
+
+  .actions { display:flex; gap:10px; }
+  .sys { flex:1; appearance:none; cursor:pointer; color:var(--txt);
+    background:var(--glass); border:1px solid var(--glass-brd); border-radius:14px;
+    padding:11px 12px; font-size:13.5px; font-weight:600; letter-spacing:.02em;
+    backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
+    transition:transform .12s, background .18s, border-color .18s, box-shadow .18s; }
+  .sys:hover { border-color:rgba(255,255,255,0.18); }
+  .sys:active { transform:scale(.97); }
+  .sys:disabled { opacity:.5; cursor:default; }
+  .sys.busy { background:linear-gradient(165deg,var(--accent),var(--accent2)); border-color:transparent; }
+  #link.linked { background:linear-gradient(165deg,var(--accent),var(--accent2)); border-color:transparent;
+    box-shadow:0 6px 22px rgba(59,130,246,.35); }
+
+  .controls { flex:1; display:flex; flex-direction:column; justify-content:center; gap:16px; }
+
+  .btn { appearance:none; cursor:pointer; color:var(--txt); border:1px solid var(--glass-brd);
+    background:linear-gradient(165deg, rgba(255,255,255,0.07), rgba(255,255,255,0.02));
+    box-shadow:inset 0 1px 0 rgba(255,255,255,0.08), 0 6px 16px rgba(0,0,0,0.45);
+    display:flex; align-items:center; justify-content:center; font-weight:700;
+    touch-action:none; -webkit-backdrop-filter:blur(4px); backdrop-filter:blur(4px);
+    transition:transform .11s cubic-bezier(.2,.8,.2,1), box-shadow .16s, background .16s, color .16s; }
+  .btn:active, .btn.active {
+    transform:scale(.9);
+    background:linear-gradient(165deg, var(--accent), var(--accent2));
+    box-shadow:inset 0 0 0 1px rgba(255,255,255,.25), 0 0 26px rgba(59,130,246,.6);
+    color:#fff; }
+
+  /* shoulders */
+  .shoulders { display:flex; gap:10px; }
+  .shoulders .btn { flex:1; height:clamp(42px,11vw,54px); border-radius:14px;
+    font-size:clamp(13px,3.6vw,15px); letter-spacing:.03em; }
+
+  /* clusters */
+  .main { display:flex; justify-content:space-between; align-items:center; gap:12px; }
+  .well { padding:clamp(8px,2.4vw,12px); border-radius:30px; border:1px solid var(--glass-brd);
+    background:radial-gradient(120% 120% at 50% 30%, rgba(255,255,255,0.06), rgba(255,255,255,0.012));
+    box-shadow:inset 0 2px 14px rgba(0,0,0,0.55), 0 8px 24px rgba(0,0,0,0.35); }
+  .cluster { display:grid; gap:9px;
+    grid-template-columns:repeat(3, clamp(52px,17vw,74px));
+    grid-template-rows:repeat(3, clamp(52px,17vw,74px)); }
+  .cluster .c { display:flex; align-items:center; justify-content:center; }
+  .cluster .c::after { content:""; width:8px; height:8px; border-radius:50%;
+    background:rgba(255,255,255,0.10); }
+
+  .dpad .btn { border-radius:16px; font-size:clamp(15px,4.4vw,21px); color:#cfd4e6; }
+  .dpad .u { grid-area:1/2; } .dpad .l { grid-area:2/1; }
+  .dpad .r { grid-area:2/3; } .dpad .d { grid-area:3/2; }
+  .dpad .c { grid-area:2/2; }
+
+  .faces .btn { border-radius:50%; font-size:clamp(22px,6.2vw,30px); }
+  .faces .t { grid-area:1/2; color:var(--tri); }
+  .faces .s { grid-area:2/1; color:var(--sqr); }
+  .faces .o { grid-area:2/3; color:var(--cir); }
+  .faces .x { grid-area:3/2; color:var(--cro); }
+  .faces .c { grid-area:2/2; }
+  .faces .btn:active, .faces .btn.active { color:#fff; }
+
+  /* system row */
+  .system { display:flex; gap:9px; }
+  .system .btn { flex:1; height:clamp(40px,10.5vw,48px); border-radius:14px;
+    font-size:clamp(11.5px,3.1vw,13.5px); letter-spacing:.02em; padding:0 6px; }
+  .system .ps { font-weight:800; letter-spacing:.06em;
+    background:linear-gradient(165deg, var(--accent), var(--accent2)); border-color:transparent;
+    box-shadow:0 8px 24px rgba(59,130,246,.4), inset 0 1px 0 rgba(255,255,255,.25);
+    color:#fff; }
+
+  .hint { display:none; text-align:center; color:var(--muted); font-size:11.5px; letter-spacing:.02em; }
+  .hint kbd { font:inherit; padding:1px 6px; border-radius:6px; background:var(--glass);
+    border:1px solid var(--glass-brd); }
+  @media (hover:hover) and (pointer:fine) { .hint { display:block; } }
+
+  #feedback { position:fixed; top:50%; left:50%; z-index:99; pointer-events:none;
+    transform:translate(-50%,-50%) scale(.7); opacity:0;
+    font-size:clamp(48px,16vw,84px); font-weight:800; color:#fff;
+    text-shadow:0 6px 40px rgba(59,130,246,.65), 0 2px 10px rgba(0,0,0,.6);
+    transition:opacity .12s, transform .12s; }
+  #feedback.show { opacity:.95; transform:translate(-50%,-50%) scale(1); }
 </style>
 </head>
 <body>
-<header>
-  <span id="dot"></span>
-  <span id="stat">connecting…</span>
-  <button class="sys" id="link">Link</button>
-  <button class="sys" id="wake">Wake</button>
-</header>
+<div class="wrap">
+  <header>
+    <div class="brand">PS5&nbsp;<b>Remote</b></div>
+    <div class="pill"><span id="dot"></span><span id="stat">connecting…</span></div>
+  </header>
 
-<div class="pad">
-  <div class="row shoulders">
-    <button class="btn" data-btn="L1">L1</button>
-    <button class="btn" data-btn="L2">L2</button>
-    <button class="btn" data-btn="R2">R2</button>
-    <button class="btn" data-btn="R1">R1</button>
+  <div class="actions">
+    <button class="sys" id="link">Link</button>
+    <button class="sys" id="wake">Wake</button>
   </div>
 
-  <div class="main">
-    <div class="cluster dpad">
-      <button class="btn u" data-btn="UP">▲</button>
-      <button class="btn l" data-btn="LEFT">◀</button>
-      <span class="c"></span>
-      <button class="btn r" data-btn="RIGHT">▶</button>
-      <button class="btn d" data-btn="DOWN">▼</button>
+  <div class="controls">
+    <div class="shoulders">
+      <button class="btn" data-btn="L1">L1</button>
+      <button class="btn" data-btn="L2">L2</button>
+      <button class="btn" data-btn="R2">R2</button>
+      <button class="btn" data-btn="R1">R1</button>
     </div>
-    <div class="cluster face-cluster">
-      <button class="btn face t syscol-tri" data-btn="TRIANGLE">△</button>
-      <button class="btn face s syscol-sqr" data-btn="SQUARE">□</button>
-      <span class="c"></span>
-      <button class="btn face o syscol-cir" data-btn="CIRCLE">○</button>
-      <button class="btn face x syscol-cro" data-btn="CROSS">✕</button>
-    </div>
-  </div>
 
-  <div class="center">
-    <button class="btn" data-btn="SHARE">Create</button>
-    <button class="btn ps" data-btn="PS">PS</button>
-    <button class="btn" data-btn="TOUCHPAD">Pad</button>
-    <button class="btn" data-btn="OPTIONS">Options</button>
+    <div class="main">
+      <div class="well">
+        <div class="cluster dpad">
+          <button class="btn u" data-btn="UP">▲</button>
+          <button class="btn l" data-btn="LEFT">◀</button>
+          <span class="c"></span>
+          <button class="btn r" data-btn="RIGHT">▶</button>
+          <button class="btn d" data-btn="DOWN">▼</button>
+        </div>
+      </div>
+      <div class="well">
+        <div class="cluster faces">
+          <button class="btn t" data-btn="TRIANGLE">△</button>
+          <button class="btn s" data-btn="SQUARE">□</button>
+          <span class="c"></span>
+          <button class="btn o" data-btn="CIRCLE">○</button>
+          <button class="btn x" data-btn="CROSS">✕</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="system">
+      <button class="btn" data-btn="SHARE">Create</button>
+      <button class="btn ps" data-btn="PS">PS</button>
+      <button class="btn" data-btn="TOUCHPAD">Pad</button>
+      <button class="btn" data-btn="OPTIONS">Options</button>
+    </div>
+
+    <div class="hint">
+      <kbd>↑↓←→</kbd> d-pad · <kbd>↵</kbd> ✕ · <kbd>⌫</kbd> ○ · <kbd>`</kbd> PS
+    </div>
   </div>
 </div>
 
@@ -108,8 +207,12 @@ INDEX_HTML = r"""<!DOCTYPE html>
   const linkBtn = document.getElementById('link');
   const fb = document.getElementById('feedback');
   let linked = false, busy = false, fbTimer;
+
+  // Prettier glyphs for the center flash.
+  const GLYPH = { CROSS:'✕', CIRCLE:'○', SQUARE:'□', TRIANGLE:'△',
+                  UP:'▲', DOWN:'▼', LEFT:'◀', RIGHT:'▶', PS:'PS' };
   function flash(name) {
-    fb.textContent = name;
+    fb.textContent = GLYPH[name] || name;
     fb.classList.add('show');
     clearTimeout(fbTimer);
     fbTimer = setTimeout(() => fb.classList.remove('show'), 220);
@@ -141,7 +244,7 @@ INDEX_HTML = r"""<!DOCTYPE html>
       dot.className = s.on ? 'on' : 'off';
       if (!busy) {                          // don't clobber the in-flight state
         linkBtn.textContent = linked ? 'Unlink' : 'Link';
-        linkBtn.classList.toggle('ps', linked);
+        linkBtn.classList.toggle('linked', linked);
         const base = s.on ? (s.app ? s.app : (s.status || 'on')) : 'rest mode';
         stat.textContent = base + (s.on ? (linked ? ' · linked' : ' · idle') : '');
       }
@@ -160,6 +263,7 @@ INDEX_HTML = r"""<!DOCTYPE html>
     el.addEventListener('pointerup', release);
     el.addEventListener('pointerleave', release);
     el.addEventListener('pointercancel', release);
+    el.addEventListener('contextmenu', (e) => e.preventDefault());
   }
   document.querySelectorAll('.btn[data-btn]').forEach(bind);
 
@@ -188,6 +292,7 @@ INDEX_HTML = r"""<!DOCTYPE html>
     const el = btnEl(b); if (el) el.classList.remove('active');
     send({ action: 'release', button: b });
   });
+
   // POST a control endpoint and return the parsed JSON (throws on HTTP/app error).
   async function api(path) {
     const r = await fetch(path, { method: 'POST', headers: { 'Authorization': 'Bearer ' + token } });
@@ -207,15 +312,15 @@ INDEX_HTML = r"""<!DOCTYPE html>
   });
 
   // Link/Unlink: awaits the real result, shows progress, can't be spam-clicked.
-  async function setLink(connect) {
+  async function setLink(doConnect) {
     if (busy) return;
     busy = true;
     linkBtn.disabled = true;
     linkBtn.classList.add('busy');
-    linkBtn.textContent = connect ? 'Linking…' : 'Unlinking…';
-    stat.textContent = connect ? 'linking…' : 'unlinking…';
+    linkBtn.textContent = doConnect ? 'Linking…' : 'Unlinking…';
+    stat.textContent = doConnect ? 'linking…' : 'unlinking…';
     try {
-      await api(connect ? '/api/connect' : '/api/disconnect');
+      await api(doConnect ? '/api/connect' : '/api/disconnect');
     } catch (e) {
       stat.textContent = '⚠ ' + e.message;
     } finally {
