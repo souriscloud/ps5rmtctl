@@ -72,7 +72,11 @@ INDEX_HTML = r"""<!DOCTYPE html>
   #link.linked { background:linear-gradient(165deg,var(--accent),var(--accent2)); border-color:transparent;
     box-shadow:0 6px 22px rgba(59,130,246,.35); }
 
-  .controls { flex:1; display:flex; flex-direction:column; justify-content:center; gap:16px; }
+  .controls { flex:1; display:flex; flex-direction:column; gap:16px; }
+
+  /* flash band: the empty space between Link/Wake and the clusters */
+  .flash { flex:1; min-height:clamp(64px,13vh,108px);
+    display:flex; align-items:center; justify-content:center; overflow:visible; }
 
   .btn { appearance:none; cursor:pointer; color:var(--txt); border:1px solid rgba(255,255,255,0.2);
     background:linear-gradient(165deg, rgba(255,255,255,0.17), rgba(255,255,255,0.06));
@@ -130,12 +134,11 @@ INDEX_HTML = r"""<!DOCTYPE html>
     border:1px solid var(--glass-brd); }
   @media (hover:hover) and (pointer:fine) { .hint { display:block; } }
 
-  #feedback { position:fixed; top:50%; left:50%; z-index:99; pointer-events:none;
-    transform:translate(-50%,-50%) scale(.7); opacity:0;
-    font-size:clamp(48px,16vw,84px); font-weight:800; color:#fff;
+  #feedback { pointer-events:none; line-height:1; transform:scale(.6); opacity:0;
+    font-size:clamp(46px,15vw,82px); font-weight:800; color:#fff;
     text-shadow:0 6px 40px rgba(59,130,246,.65), 0 2px 10px rgba(0,0,0,.6);
     transition:opacity .12s, transform .12s; }
-  #feedback.show { opacity:.95; transform:translate(-50%,-50%) scale(1); }
+  #feedback.show { opacity:.97; transform:scale(1); }
 </style>
 </head>
 <body>
@@ -151,6 +154,8 @@ INDEX_HTML = r"""<!DOCTYPE html>
   </div>
 
   <div class="controls">
+    <div class="flash"><div id="feedback"></div></div>
+
     <div class="shoulders">
       <button class="btn" data-btn="L1">L1</button>
       <button class="btn" data-btn="L2">L2</button>
@@ -187,12 +192,10 @@ INDEX_HTML = r"""<!DOCTYPE html>
     </div>
 
     <div class="hint">
-      <kbd>↑↓←→</kbd> d-pad · <kbd>↵</kbd> ✕ · <kbd>⌫</kbd> ○ · <kbd>`</kbd> PS
+      <kbd>↑↓←→</kbd> d-pad · <kbd>↵</kbd> ✕ · <kbd>⌫</kbd> ○ · <kbd>Tab</kbd> PS
     </div>
   </div>
 </div>
-
-<div id="feedback"></div>
 
 <script>
 (function () {
@@ -270,7 +273,7 @@ INDEX_HTML = r"""<!DOCTYPE html>
   // --- physical keyboard control (press/release, so holds repeat) ---
   const KEYMAP = {
     ArrowUp: 'UP', ArrowDown: 'DOWN', ArrowLeft: 'LEFT', ArrowRight: 'RIGHT',
-    Enter: 'CROSS', Backspace: 'CIRCLE', '`': 'PS', '~': 'PS',
+    Enter: 'CROSS', Backspace: 'CIRCLE', Tab: 'PS',
   };
   const held = new Set();
   const btnEl = (name) => document.querySelector('.btn[data-btn="' + name + '"]');
