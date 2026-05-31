@@ -15,10 +15,21 @@ import asyncio
 import logging
 from typing import Iterable, List, Optional
 
-from .buttons import resolve
+from .buttons import CANONICAL, resolve
 from .core import PS5, PS5Error
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def clamp_unit(value) -> float:
+    """Coerce ``value`` to a float in [-1.0, 1.0]; non-numeric/NaN -> 0.0."""
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    if v != v:  # NaN
+        return 0.0
+    return max(-1.0, min(1.0, v))
 
 
 class PS5Service:
@@ -146,6 +157,40 @@ class PS5Service:
             await self.controller.async_button(button, "release")
             self._touch()
         return button
+
+    async def stick(self, side: str, x, y) -> dict:
+        """Set an analog stick position. ``x``/``y`` in [-1, 1] (auto-clamped).
+
+        x: left -1 .. right +1; y: up -1 .. down +1. The value persists on the
+        console until changed, so a single STATE packet per change is enough —
+        no background streaming thread needed.
+        """
+        side = (side or "").strip().lower()
+        if side not in ("left", "right"):
+            raise PS5Error(f"Invalid stick {side!r}: expected 'left' or 'right'.")
+        x, y = clamp_unit(x), clamp_unit(y)
+        async with self._lock:
+            await self.ensure_connected()
+            self.controller.stick(side, point=(x, y))
+            self.controller.update_sticks()
+            self._touch()
+        return {"stick": side, "x": x, "y": y}
+
+    async def release_all(self) -> None:
+        """Release every button and recenter both sticks.
+
+        Called when a client disconnects so anything held at the moment the
+        socket dropped doesn't stay stuck down on the console.
+        """
+        async with self._lock:
+            if not self._is_ready():
+                return
+            for button in CANONICAL:
+                await self.controller.async_button(button, "release")
+            self.controller.stick("left", point=(0.0, 0.0))
+            self.controller.stick("right", point=(0.0, 0.0))
+            self.controller.update_sticks()
+            self._touch()
 
     async def hold(self, name: str, duration: float = 1.0) -> str:
         button = resolve(name)

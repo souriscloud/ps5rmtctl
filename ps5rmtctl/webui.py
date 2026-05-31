@@ -14,6 +14,9 @@ INDEX_HTML = r"""<!DOCTYPE html>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#07070c">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icon.svg">
+<link rel="icon" href="/icon.svg">
 <title>PS5 Remote</title>
 <style>
   :root {
@@ -129,6 +132,26 @@ INDEX_HTML = r"""<!DOCTYPE html>
     box-shadow:0 8px 24px rgba(59,130,246,.4), inset 0 1px 0 rgba(255,255,255,.25);
     color:#fff; }
 
+  /* analog sticks */
+  .sticks { display:flex; gap:14px; }
+  .stick { position:relative; flex:1; max-width:clamp(96px,30vw,138px); aspect-ratio:1/1;
+    margin:0 auto; border-radius:50%; touch-action:none; cursor:grab;
+    border:1px solid var(--glass-brd);
+    background:radial-gradient(120% 120% at 50% 30%, rgba(255,255,255,0.06), rgba(255,255,255,0.012));
+    box-shadow:inset 0 2px 16px rgba(0,0,0,0.55), 0 8px 24px rgba(0,0,0,0.3); }
+  .stick .nub { position:absolute; top:50%; left:50%; width:44%; height:44%;
+    transform:translate(-50%,-50%); border-radius:50%;
+    border:1px solid rgba(255,255,255,0.22);
+    background:linear-gradient(165deg, rgba(255,255,255,0.2), rgba(255,255,255,0.07));
+    box-shadow:inset 0 1px 0 rgba(255,255,255,0.18), 0 4px 12px rgba(0,0,0,0.5);
+    transition:transform .08s ease-out; }
+  .stick.active { cursor:grabbing; }
+  .stick.active .nub { transition:none;
+    background:linear-gradient(165deg, var(--accent), var(--accent2));
+    box-shadow:inset 0 0 0 1px rgba(255,255,255,.25), 0 0 22px rgba(59,130,246,.55); }
+  .stick .lbl { position:absolute; bottom:7px; left:0; right:0; text-align:center;
+    font-size:10px; font-weight:700; letter-spacing:.14em; color:var(--muted); pointer-events:none; }
+
   .hint { display:none; text-align:center; color:var(--muted); font-size:11.5px; letter-spacing:.02em; }
   .hint kbd { font:inherit; padding:1px 6px; border-radius:6px; background:var(--glass);
     border:1px solid var(--glass-brd); }
@@ -184,6 +207,11 @@ INDEX_HTML = r"""<!DOCTYPE html>
       </div>
     </div>
 
+    <div class="sticks">
+      <div class="stick" data-stick="left"><div class="nub"></div><div class="lbl">L</div></div>
+      <div class="stick" data-stick="right"><div class="nub"></div><div class="lbl">R</div></div>
+    </div>
+
     <div class="system">
       <button class="btn" data-btn="SHARE">Create</button>
       <button class="btn ps" data-btn="PS">PS</button>
@@ -192,7 +220,7 @@ INDEX_HTML = r"""<!DOCTYPE html>
     </div>
 
     <div class="hint">
-      <kbd>↑↓←→</kbd> d-pad · <kbd>↵</kbd> ✕ · <kbd>⌫</kbd> ○ · <kbd>Tab</kbd> PS
+      <kbd>↑↓←→</kbd> d-pad · <kbd>WASD</kbd>/<kbd>IJKL</kbd> sticks · <kbd>↵</kbd> ✕ · <kbd>⌫</kbd> ○ · <kbd>Tab</kbd> PS
     </div>
   </div>
 </div>
@@ -230,7 +258,7 @@ INDEX_HTML = r"""<!DOCTYPE html>
   function connect() {
     ws = new WebSocket(wsUrl());
     ws.onopen = () => { stat.textContent = 'connected'; refreshStatus(); };
-    ws.onclose = () => { stat.textContent = 'reconnecting…'; dot.className=''; scheduleReconnect(); };
+    ws.onclose = () => { stat.textContent = 'reconnecting…'; dot.className=''; releaseAll(); scheduleReconnect(); };
     ws.onerror = () => { ws.close(); };
     ws.onmessage = (e) => { try { const m = JSON.parse(e.data); if (m.error) stat.textContent = '⚠ ' + m.error; } catch(_){} };
   }
@@ -270,6 +298,66 @@ INDEX_HTML = r"""<!DOCTYPE html>
   }
   document.querySelectorAll('.btn[data-btn]').forEach(bind);
 
+  // --- analog sticks (touch drag + WASD/IJKL) ---
+  function moveNub(side, x, y) {
+    const pad = document.querySelector('.stick[data-stick="' + side + '"]');
+    if (!pad) return;
+    const nub = pad.querySelector('.nub');
+    const R = pad.clientWidth / 2 - nub.clientWidth / 2;
+    nub.style.transform = 'translate(calc(-50% + ' + (x * R) + 'px), calc(-50% + ' + (y * R) + 'px))';
+  }
+  function sendStick(side, x, y) {
+    moveNub(side, x, y);
+    send({ action: 'stick', stick: side, x: +x.toFixed(3), y: +y.toFixed(3) });
+  }
+  function bindStick(el) {
+    const side = el.dataset.stick;
+    let active = false, pid = null, cx = 0, cy = 0, R = 1, last = 0;
+    const begin = (e) => {
+      active = true; pid = e.pointerId;
+      try { el.setPointerCapture(pid); } catch (_) {}
+      el.classList.add('active');
+      const r = el.getBoundingClientRect();
+      cx = r.left + r.width / 2; cy = r.top + r.height / 2; R = r.width / 2;
+      drag(e);
+    };
+    const drag = (e) => {
+      if (!active) return;
+      const dx = e.clientX - cx, dy = e.clientY - cy;
+      const dist = Math.hypot(dx, dy), m = Math.min(dist, R), a = Math.atan2(dy, dx);
+      const x = dist ? Math.cos(a) * m / R : 0, y = dist ? Math.sin(a) * m / R : 0;
+      const now = (window.performance && performance.now) ? performance.now() : Date.now();
+      if (now - last > 33) { last = now; sendStick(side, x, y); } else { moveNub(side, x, y); }
+    };
+    const end = () => {
+      if (!active) return;
+      active = false; el.classList.remove('active');
+      try { el.releasePointerCapture(pid); } catch (_) {}
+      sendStick(side, 0, 0);
+    };
+    el.addEventListener('pointerdown', (e) => { e.preventDefault(); begin(e); });
+    el.addEventListener('pointermove', drag);
+    el.addEventListener('pointerup', end);
+    el.addEventListener('pointercancel', end);
+    el.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
+  document.querySelectorAll('.stick[data-stick]').forEach(bindStick);
+
+  const STICK_KEYS = {
+    w: ['left', 'y', -1], s: ['left', 'y', 1], a: ['left', 'x', -1], d: ['left', 'x', 1],
+    i: ['right', 'y', -1], k: ['right', 'y', 1], j: ['right', 'x', -1], l: ['right', 'x', 1],
+  };
+  const stickHeld = new Set();
+  function recomputeStick(side) {
+    let x = 0, y = 0;
+    stickHeld.forEach((key) => {
+      const m = STICK_KEYS[key];
+      if (m && m[0] === side) { if (m[1] === 'x') x += m[2]; else y += m[2]; }
+    });
+    x = Math.max(-1, Math.min(1, x)); y = Math.max(-1, Math.min(1, y));
+    sendStick(side, x, y);
+  }
+
   // --- physical keyboard control (press/release, so holds repeat) ---
   const KEYMAP = {
     ArrowUp: 'UP', ArrowDown: 'DOWN', ArrowLeft: 'LEFT', ArrowRight: 'RIGHT',
@@ -278,6 +366,14 @@ INDEX_HTML = r"""<!DOCTYPE html>
   const held = new Set();
   const btnEl = (name) => document.querySelector('.btn[data-btn="' + name + '"]');
   window.addEventListener('keydown', (e) => {
+    const sk = STICK_KEYS[e.key.toLowerCase()];
+    if (sk) {
+      e.preventDefault();
+      if (e.repeat || stickHeld.has(e.key.toLowerCase())) return;
+      stickHeld.add(e.key.toLowerCase());
+      recomputeStick(sk[0]);
+      return;
+    }
     const b = KEYMAP[e.key];
     if (!b) return;
     e.preventDefault();                 // stop Backspace=back, arrows=scroll
@@ -334,6 +430,33 @@ INDEX_HTML = r"""<!DOCTYPE html>
     }
   }
   linkBtn.addEventListener('click', () => setLink(!linked));
+
+  // Safety: if the page is hidden/blurred or the socket drops mid-press, make
+  // sure nothing stays held down (or a stick stays deflected) on the console.
+  function releaseAll() {
+    Object.keys(repeatTimers).forEach(stopRepeat);
+    held.forEach((key) => {
+      const b = KEYMAP[key];
+      if (b) { const el = btnEl(b); if (el) el.classList.remove('active'); send({ action: 'release', button: b }); }
+    });
+    held.clear();
+    document.querySelectorAll('.btn.active').forEach((el) => {
+      el.classList.remove('active');
+      if (el.dataset.btn) send({ action: 'release', button: el.dataset.btn });
+    });
+    stickHeld.clear();
+    document.querySelectorAll('.stick.active').forEach((el) => el.classList.remove('active'));
+    sendStick('left', 0, 0);
+    sendStick('right', 0, 0);
+  }
+  window.addEventListener('blur', releaseAll);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) releaseAll(); });
+
+  // Register the service worker only in a secure context (HTTPS / localhost),
+  // e.g. behind Tailscale Serve. Over plain HTTP this is a no-op.
+  if ('serviceWorker' in navigator && window.isSecureContext) {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  }
 
   connect();
 })();

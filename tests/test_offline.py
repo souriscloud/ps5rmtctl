@@ -69,6 +69,36 @@ def test_server_auth_and_routes():
     assert expected <= paths, expected - paths
 
 
+def test_stick_clamp():
+    from ps5rmtctl.service import clamp_unit
+
+    assert clamp_unit(2.0) == 1.0
+    assert clamp_unit(-2.0) == -1.0
+    assert clamp_unit(0.5) == 0.5
+    assert clamp_unit("nope") == 0.0
+    assert clamp_unit(None) == 0.0
+    assert clamp_unit(float("nan")) == 0.0
+
+
+def test_routes_include_stick_and_pwa():
+    from ps5rmtctl.server import build_app
+    from ps5rmtctl.service import PS5Service
+
+    app = build_app(PS5Service("1.2.3.4", "u"), "tok")
+    paths = {r.resource.canonical for r in app.router.routes()}
+    for p in ("/api/stick", "/manifest.webmanifest", "/icon.svg", "/sw.js"):
+        assert p in paths, p
+
+
+def test_webui_has_sticks_and_pwa():
+    from ps5rmtctl.webui import INDEX_HTML as html
+
+    assert 'data-stick="left"' in html and 'data-stick="right"' in html
+    assert "manifest.webmanifest" in html
+    assert "serviceWorker" in html
+    assert "STICK_KEYS" in html
+
+
 def _run():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:

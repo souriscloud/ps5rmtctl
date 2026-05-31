@@ -12,6 +12,7 @@ Endpoints (JSON):
     POST /api/press        {button}                                (auth)
     POST /api/release      {button}                                (auth)
     POST /api/hold         {button, duration?}                     (auth)
+    POST /api/stick        {stick:'left'|'right', x, y}            (auth)
     GET  /ws               -> WebSocket; low-latency input stream  (auth)
 
 Auth: a bearer token, supplied as ``Authorization: Bearer <token>`` or a
@@ -133,42 +134,119 @@ async def handle_hold(request: web.Request) -> web.Response:
     )
 
 
+async def handle_stick(request: web.Request) -> web.Response:
+    data = await request.json()
+    return await _run_action(
+        _service(request).stick(data.get("stick", "left"), data.get("x", 0.0), data.get("y", 0.0))
+    )
+
+
+# ---------------------------------------------------------------- PWA assets
+_MANIFEST = {
+    "name": "PS5 Remote",
+    "short_name": "PS5",
+    "start_url": "/",
+    "scope": "/",
+    "display": "standalone",
+    "orientation": "portrait",
+    "background_color": "#07070c",
+    "theme_color": "#07070c",
+    "icons": [
+        {"src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable"},
+    ],
+}
+
+_ICON_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">'
+    '<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">'
+    '<stop offset="0" stop-color="#3b82f6"/><stop offset="1" stop-color="#7c5cff"/>'
+    "</linearGradient></defs>"
+    '<rect width="512" height="512" rx="116" fill="#0d0d16"/>'
+    '<rect x="48" y="48" width="416" height="416" rx="92" fill="url(#g)"/>'
+    '<text x="256" y="338" font-family="Arial,Helvetica,sans-serif" font-size="232" '
+    'font-weight="bold" text-anchor="middle" fill="#fff">PS</text>'
+    "</svg>"
+)
+
+# Minimal service worker. The client only registers it in a secure context
+# (HTTPS / localhost) — e.g. behind Tailscale Serve — so over a bare HTTP LAN
+# it never runs. Present so the app is a real installable PWA when fronted by TLS.
+_SW_JS = """\
+const CACHE = 'ps5rmtctl-v1';
+self.addEventListener('install', (e) => self.skipWaiting());
+self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
+self.addEventListener('fetch', (e) => {
+  const url = new URL(e.request.url);
+  if (url.pathname === '/icon.svg' || url.pathname === '/manifest.webmanifest') {
+    e.respondWith(caches.open(CACHE).then((c) =>
+      c.match(e.request).then((hit) => hit || fetch(e.request).then((res) => {
+        c.put(e.request, res.clone()); return res;
+      }))));
+  }
+});
+"""
+
+
+async def handle_manifest(request: web.Request) -> web.Response:
+    return web.json_response(_MANIFEST, content_type="application/manifest+json")
+
+
+async def handle_icon(request: web.Request) -> web.Response:
+    return web.Response(text=_ICON_SVG, content_type="image/svg+xml")
+
+
+async def handle_sw(request: web.Request) -> web.Response:
+    return web.Response(text=_SW_JS, content_type="application/javascript")
+
+
 # ------------------------------------------------------------------- WebSocket
 async def handle_ws(request: web.Request) -> web.WebSocketResponse:
     ws = web.WebSocketResponse(heartbeat=30)
     await ws.prepare(request)
     service = _service(request)
     _LOGGER.info("WebSocket client connected: %s", request.remote)
-    async for msg in ws:
-        if msg.type != WSMsgType.TEXT:
-            continue
-        try:
-            data = msg.json()
-            action = data.get("action")
-            if action == "tap":
-                buttons = data.get("buttons") or [data["button"]]
-                await service.tap(buttons, delay=float(data.get("delay", 0.1)))
-            elif action == "press":
-                await service.press(data["button"])
-            elif action == "release":
-                await service.release(data["button"])
-            elif action == "hold":
-                await service.hold(data["button"], duration=float(data.get("duration", 1.0)))
-            elif action == "wake":
-                await service.wake()
-            elif action == "connect":
-                await service.connect()
-            elif action == "disconnect":
-                await service.disconnect()
-            else:
-                await ws.send_json({"error": f"unknown action: {action!r}"})
+    try:
+        async for msg in ws:
+            if msg.type != WSMsgType.TEXT:
                 continue
-            await ws.send_json({"ok": True, "action": action})
-        except (UnknownButton, KeyError) as exc:
-            await ws.send_json({"error": f"bad request: {exc}"})
-        except PS5Error as exc:
-            await ws.send_json({"error": str(exc)})
-    _LOGGER.info("WebSocket client disconnected: %s", request.remote)
+            try:
+                data = msg.json()
+                action = data.get("action")
+                if action == "tap":
+                    buttons = data.get("buttons") or [data["button"]]
+                    await service.tap(buttons, delay=float(data.get("delay", 0.1)))
+                elif action == "press":
+                    await service.press(data["button"])
+                elif action == "release":
+                    await service.release(data["button"])
+                elif action == "stick":
+                    await service.stick(
+                        data.get("stick", "left"), data.get("x", 0.0), data.get("y", 0.0)
+                    )
+                elif action == "hold":
+                    await service.hold(data["button"], duration=float(data.get("duration", 1.0)))
+                elif action == "wake":
+                    await service.wake()
+                elif action == "connect":
+                    await service.connect()
+                elif action == "disconnect":
+                    await service.disconnect()
+                else:
+                    await ws.send_json({"error": f"unknown action: {action!r}"})
+                    continue
+                await ws.send_json({"ok": True, "action": action})
+            except (UnknownButton, KeyError) as exc:
+                await ws.send_json({"error": f"bad request: {exc}"})
+            except PS5Error as exc:
+                await ws.send_json({"error": str(exc)})
+    finally:
+        # Client vanished (lock screen, network drop, tab close): make sure
+        # nothing it was holding stays stuck down on the console.
+        try:
+            await service.release_all()
+        except PS5Error:
+            pass
+        _LOGGER.info("WebSocket client disconnected: %s", request.remote)
     return ws
 
 
@@ -187,7 +265,11 @@ def build_app(service: PS5Service, token: str) -> web.Application:
         web.post("/api/press", handle_press),
         web.post("/api/release", handle_release),
         web.post("/api/hold", handle_hold),
+        web.post("/api/stick", handle_stick),
         web.get("/ws", handle_ws),
+        web.get("/manifest.webmanifest", handle_manifest),
+        web.get("/icon.svg", handle_icon),
+        web.get("/sw.js", handle_sw),
     ])
 
     async def _on_startup(app: web.Application):
