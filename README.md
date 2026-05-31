@@ -116,8 +116,9 @@ It prints an API token (generated and saved on first run). Then on any device:
 http://<server-ip>:8645/?token=<token>
 ```
 
-That serves a touch button pad (add it to your phone's home screen for an
-app-like remote). The page caches the token, so afterwards just open the host.
+That serves a full touch gamepad — D-pad, face buttons, shoulders/triggers, the
+system row (Create / PS / Pad / Options) and **two analog thumbsticks**. The
+page caches the token, so afterwards just open the host with no `?token=`.
 
 **On-demand session (does not hog the console).** The server does *not* hold a
 Remote Play session open 24/7. It links only when you use it:
@@ -128,6 +129,31 @@ Remote Play session open 24/7. It links only when you use it:
 - Only one Remote Play session can exist per console at a time — so while linked,
   the official app can't connect; Unlink (or wait for idle) to hand it back.
 
+### Web UI controls
+
+**Touch.** Tap or hold any button; the D-pad **auto-repeats** while held so menus
+keep scrolling. Drag either thumbstick — it springs back to center on release.
+
+**Keyboard** (when controlling from a desktop browser):
+
+| Key | Action |
+|---|---|
+| Arrow keys | D-pad (hold to repeat) |
+| `W` `A` `S` `D` | left stick |
+| `I` `J` `K` `L` | right stick |
+| Enter | CROSS (✕) |
+| Backspace | CIRCLE (○) |
+| Tab | PS (home) |
+
+> `Tab` maps to PS because browsers reserve `Esc` (it exits fullscreen/PWA), so
+> an `Esc` keypress never reaches the page.
+
+**Install to home screen.** A web-app manifest + icon are served, so you can add
+the remote to your phone's home screen and launch it full-screen. It becomes a
+true installable PWA (with an offline service worker) when reached over
+**HTTPS** — e.g. via `tailscale serve`; over plain HTTP the service worker stays
+disabled and it's a normal "Add to Home Screen" shortcut.
+
 **API** (token via `Authorization: Bearer <t>` header or `?token=<t>`):
 
 | Method | Path | Body | Purpose |
@@ -136,12 +162,19 @@ Remote Play session open 24/7. It links only when you use it:
 | POST | `/api/connect` / `/api/disconnect` | | link / release the session |
 | POST | `/api/tap` | `{"buttons":["down","cross"]}` | tap a sequence |
 | POST | `/api/press` / `/api/release` | `{"button":"r2"}` | hold support |
+| POST | `/api/stick` | `{"stick":"left","x":0,"y":-1}` | set an analog stick (x/y in −1..1) |
 | POST | `/api/hold` | `{"button":"r2","duration":2}` | press+wait+release |
 | POST | `/api/wake` | | wake from rest |
 | GET | `/ws` | (WebSocket) | low-latency input stream |
 
-The web UI uses the WebSocket with press/release pairs, so buttons feel like a
-real controller (hold to repeat-scroll, tap to select).
+The web UI drives everything over the WebSocket (`press` / `release` / `stick`
+messages) for low latency. If a client disconnects mid-press (phone locks,
+network blips, tab closes), the server releases every button and recenters both
+sticks, so nothing stays stuck down on the console.
+
+> Button holds and stick positions persist on the console until changed, so each
+> input is a single packet — no continuous streaming thread is needed. Menu
+> auto-repeat for the D-pad is synthesized client-side (re-press on a timer).
 
 ### Deploying on the always-on desktop
 
@@ -213,6 +246,7 @@ buttons.py  friendly-name -> canonical-button resolution
 config.py   default host/user/token storage under ~/.ps5rmtctl
 
 Dockerfile, docker-compose.yml   Alpine container deploy (Python 3.9, bridge net)
+.github/workflows/ci.yml         CI: offline tests + ruff on every push / PR
 ```
 
 Status / registration / wake are synchronous (DDP UDP). The Remote Play session
@@ -226,6 +260,9 @@ manager that connects with **no AV receiver** (blind) and yields a ready
 .venv/bin/python tests/test_offline.py   # no hardware/network needed
 ```
 
+These also run in CI (`.github/workflows/ci.yml`) on every push and pull
+request, alongside `ruff` linting.
+
 ## Limitations / notes
 
 - One Remote Play session at a time; while linked, close/avoid the official
@@ -235,3 +272,5 @@ manager that connects with **no AV receiver** (blind) and yields a ready
   the `serve` daemon (warm, on-demand session) + web UI.
 - Phone control is the `serve` web UI over your network/Tailscale — no native
   app or Swift protocol re-port needed.
+- No on-screen-keyboard text entry yet: pyremoteplay 0.7.6 doesn't implement the
+  PS5 OSK channel, so you can't type into text fields from the remote.
