@@ -250,16 +250,21 @@ INDEX_HTML = r"""<!DOCTYPE html>
   }
 
   // --- websocket with auto-reconnect ---
-  let ws = null, reconnectTimer = null;
+  let ws = null, reconnectTimer = null, pollTimer = null;
   function wsUrl() {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     return `${proto}://${location.host}/ws?token=${encodeURIComponent(token)}`;
   }
   function connect() {
+    if (ws && (ws.readyState === 0 || ws.readyState === 1)) return;  // already connecting/open
     ws = new WebSocket(wsUrl());
     ws.onopen = () => { stat.textContent = 'connected'; refreshStatus(); };
-    ws.onclose = () => { stat.textContent = 'reconnecting…'; dot.className=''; releaseAll(); scheduleReconnect(); };
-    ws.onerror = () => { ws.close(); };
+    ws.onclose = () => {
+      dot.className = '';
+      if (document.hidden) { stat.textContent = 'paused'; return; }  // we dropped it on purpose
+      stat.textContent = 'reconnecting…'; releaseAll(); scheduleReconnect();
+    };
+    ws.onerror = () => { try { ws.close(); } catch (_) {} };
     ws.onmessage = (e) => { try { const m = JSON.parse(e.data); if (m.error) stat.textContent = '⚠ ' + m.error; } catch(_){} };
   }
   function scheduleReconnect() { clearTimeout(reconnectTimer); reconnectTimer = setTimeout(connect, 1200); }
@@ -281,15 +286,60 @@ INDEX_HTML = r"""<!DOCTYPE html>
       }
     } catch (_) {}
   }
-  setInterval(refreshStatus, 5000);
+
+  // --- resource-friendly lifecycle ---
+  // While the page is hidden (phone locked, tab backgrounded) we drop the socket
+  // and stop polling so nothing runs in the background; on return we revive
+  // instantly. The poll also resurrects a socket that died silently on the wire.
+  function poll() {
+    if (document.hidden) return;
+    refreshStatus();
+    if (!ws || ws.readyState > 1) connect();   // CLOSING(2)/CLOSED(3) -> reconnect now
+  }
+  function startPolling() { if (!pollTimer) pollTimer = setInterval(poll, 5000); }
+  function stopPolling() { clearInterval(pollTimer); pollTimer = null; }
+  function goOnline() { clearTimeout(reconnectTimer); connect(); refreshStatus(); startPolling(); }
+  function goOffline() {
+    releaseAll();                 // release held inputs while the socket is still open
+    stopPolling();
+    clearTimeout(reconnectTimer);
+    if (ws) { try { ws.close(); } catch (_) {} }   // onclose sees document.hidden -> no reconnect
+    stat.textContent = 'paused';
+  }
+
+  // --- d-pad menu auto-repeat ---
+  // The console only scrolls a menu on a fresh button down-edge, so a held key
+  // is a single move. We synthesize repeats client-side (release+press on a
+  // timer) for the directional buttons only — face/system buttons stay single-fire.
+  const REPEAT = new Set(['UP', 'DOWN', 'LEFT', 'RIGHT']);
+  const REPEAT_DELAY = 350, REPEAT_RATE = 110;
+  const repeatTimers = {};
+  function startRepeat(btn) {
+    if (!REPEAT.has(btn) || repeatTimers[btn]) return;
+    const to = setTimeout(() => {
+      const iv = setInterval(() => {
+        send({ action: 'release', button: btn });
+        send({ action: 'press', button: btn });
+      }, REPEAT_RATE);
+      repeatTimers[btn] = { iv };
+    }, REPEAT_DELAY);
+    repeatTimers[btn] = { to };
+  }
+  function stopRepeat(btn) {
+    const t = repeatTimers[btn];
+    if (!t) return;
+    if (t.to) clearTimeout(t.to);
+    if (t.iv) clearInterval(t.iv);
+    delete repeatTimers[btn];
+  }
 
   // --- button press/release wiring ---
   function bind(el) {
     const btn = el.dataset.btn;
     let down = false;
     const press = (ev) => { ev.preventDefault(); if (down) return; down = true; el.classList.add('active');
-      if (navigator.vibrate) navigator.vibrate(8); flash(btn); send({ action: 'press', button: btn }); };
-    const release = () => { if (!down) return; down = false; el.classList.remove('active'); send({ action: 'release', button: btn }); };
+      if (navigator.vibrate) navigator.vibrate(8); flash(btn); send({ action: 'press', button: btn }); startRepeat(btn); };
+    const release = () => { if (!down) return; down = false; stopRepeat(btn); el.classList.remove('active'); send({ action: 'release', button: btn }); };
     el.addEventListener('pointerdown', press);
     el.addEventListener('pointerup', release);
     el.addEventListener('pointerleave', release);
@@ -377,17 +427,19 @@ INDEX_HTML = r"""<!DOCTYPE html>
     const b = KEYMAP[e.key];
     if (!b) return;
     e.preventDefault();                 // stop Backspace=back, arrows=scroll
-    if (e.repeat || held.has(e.key)) return;
+    if (e.repeat || held.has(e.key)) return;   // OS key-repeat ignored; our timer drives it
     held.add(e.key);
     const el = btnEl(b); if (el) el.classList.add('active');
     flash(b);
     send({ action: 'press', button: b });
+    startRepeat(b);
   });
   window.addEventListener('keyup', (e) => {
     const b = KEYMAP[e.key];
     if (!b) return;
     e.preventDefault();
     held.delete(e.key);
+    stopRepeat(b);
     const el = btnEl(b); if (el) el.classList.remove('active');
     send({ action: 'release', button: b });
   });
@@ -449,8 +501,10 @@ INDEX_HTML = r"""<!DOCTYPE html>
     sendStick('left', 0, 0);
     sendStick('right', 0, 0);
   }
-  window.addEventListener('blur', releaseAll);
-  document.addEventListener('visibilitychange', () => { if (document.hidden) releaseAll(); });
+  window.addEventListener('blur', releaseAll);   // lost focus but still visible: just let go of inputs
+  window.addEventListener('focus', goOnline);     // refocused: make sure we're live again
+  document.addEventListener('visibilitychange', () => { if (document.hidden) goOffline(); else goOnline(); });
+  window.addEventListener('pageshow', goOnline);  // bfcache restore (back/forward, PWA resume)
 
   // Register the service worker only in a secure context (HTTPS / localhost),
   // e.g. behind Tailscale Serve. Over plain HTTP this is a no-op.
@@ -458,7 +512,7 @@ INDEX_HTML = r"""<!DOCTYPE html>
     navigator.serviceWorker.register('/sw.js').catch(() => {});
   }
 
-  connect();
+  goOnline();
 })();
 </script>
 </body>

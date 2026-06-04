@@ -170,7 +170,9 @@ disabled and it's a normal "Add to Home Screen" shortcut.
 The web UI drives everything over the WebSocket (`press` / `release` / `stick`
 messages) for low latency. If a client disconnects mid-press (phone locks,
 network blips, tab closes), the server releases every button and recenters both
-sticks, so nothing stays stuck down on the console.
+sticks, so nothing stays stuck down on the console. When the page is backgrounded
+(phone locked / tab hidden) it drops the socket and stops polling to save
+resources, then reconnects and refreshes instantly when you return to it.
 
 > Button holds and stick positions persist on the console until changed, so each
 > input is a single packet — no continuous streaming thread is needed. Menu
